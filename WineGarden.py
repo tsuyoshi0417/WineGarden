@@ -136,7 +136,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif p == "/api/status":
             import socket
             try:
-                lan_ip = socket.gethostbyname(socket.gethostname())
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                lan_ip = s.getsockname()[0]
+                s.close()
             except Exception:
                 lan_ip = None
             self.send_json({
@@ -171,7 +174,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             elif action == "cover":
                 self._pick_cover(idx)
             elif action == "update":
-                for key in ("name", "note", "display_size"):
+                for key in ("name", "note", "display_size", "win_size"):
                     if key in data:
                         games[idx][key] = data[key]
                 save_games()
@@ -227,8 +230,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": str(e)}); return
         env = {**os.environ, "WINEPREFIX": prefix,
                "WINEDEBUG": "-all", "LANG": "ja_JP.UTF-8", "LC_ALL": "ja_JP.UTF-8"}
+        # 拡大モード: 仮想デスクトップなし・RetinaMode外してMac解像度に合わせる
+        if g.get("display_size") == "large":
+            win_size = g.get("win_size", "1280x960")
+            cmd = [wine_path, "explorer", f"/desktop=WineDesktop,{win_size}",
+                   g["exe_path"]]
+        else:
+            cmd = [wine_path, g["exe_path"]]
         proc = subprocess.Popen(
-            [wine_path, g["exe_path"]], env=env,
+            cmd, env=env,
             cwd=str(Path(g["exe_path"]).parent),
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         running_processes[idx] = proc
@@ -388,8 +398,14 @@ function renderDetail(i){
         <input class="gname" value="${esc(g.name)}" onblur="updName(${i},this.value)" onkeydown="if(event.key==='Enter')this.blur()">
         <div class="gmeta">📁 ${esc(g.exe_path)}<br>🍷 ${esc(g.prefix_name)}</div>
         <div class="szo">
-          <label><input type="radio" name="sz" value="retina" ${g.display_size!=='large'?'checked':''} onchange="updSize(${i},'retina')"> 標準</label>
-          <label><input type="radio" name="sz" value="large" ${g.display_size==='large'?'checked':''} onchange="updSize(${i},'large')"> 拡大</label>
+          <label><input type="radio" name="sz" value="retina" ${g.display_size!=='large'?'checked':''} onchange="updSize(${i},'retina')"> 標準（カーソル正確）</label>
+          <label><input type="radio" name="sz" value="large" ${g.display_size==='large'?'checked':''} onchange="updSize(${i},'large')"> 拡大（仮想デスクトップ）</label>
+        </div>
+        <div id="szopt" style="display:${g.display_size==='large'?'flex':'none'};gap:6px;align-items:center;margin-top:6px;font-size:12px">
+          幅<input id="sw" type="number" value="${(g.win_size||'1280x960').split('x')[0]}" min="640" max="3840" style="width:70px;background:#0f3460;color:#eaeaea;border:1px solid #8899aa;border-radius:4px;padding:3px;font-size:12px">
+          ×
+          高さ<input id="sh" type="number" value="${(g.win_size||'1280x960').split('x')[1]}" min="480" max="2160" style="width:70px;background:#0f3460;color:#eaeaea;border:1px solid #8899aa;border-radius:4px;padding:3px;font-size:12px">
+          <button onclick="saveWinSize(${i})" style="background:#e94560;color:#fff;border:none;border-radius:4px;padding:4px 8px;cursor:pointer;font-size:12px">適用</button>
         </div>
       </div>
     </div>
@@ -437,7 +453,19 @@ async function pickCover(i){
 }
 async function updNote(i,v){games[i].note=v;await fetch(`/api/games/${i}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({note:v})})}
 async function updName(i,v){if(!v.trim())return;games[i].name=v.trim();await fetch(`/api/games/${i}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:v.trim()})});renderList()}
-async function updSize(i,v){games[i].display_size=v;await fetch(`/api/games/${i}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({display_size:v})})}
+async function updSize(i,v){
+  games[i].display_size=v;
+  await fetch(`/api/games/${i}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({display_size:v})});
+  const o=document.getElementById('szopt');if(o)o.style.display=v==='large'?'flex':'none';
+}
+async function saveWinSize(i){
+  const w=document.getElementById('sw').value;
+  const h=document.getElementById('sh').value;
+  const sz=w+'x'+h;
+  games[i].win_size=sz;
+  await fetch(`/api/games/${i}/update`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({win_size:sz})});
+  toast('サイズを '+sz+' に設定しました');
+}
 let tt;function toast(m){const e=document.getElementById('toast');e.textContent=m;e.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('show'),2500)}
 init();
 </script>
@@ -464,7 +492,10 @@ def main():
     # LAN IPアドレスを取得して表示
     import socket
     try:
-        lan_ip = socket.gethostbyname(socket.gethostname())
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        lan_ip = s.getsockname()[0]
+        s.close()
     except Exception:
         lan_ip = "不明"
 
