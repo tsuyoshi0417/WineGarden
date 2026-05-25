@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+assets/*.png
+assets/*.jpg
+assets/*.jpeg
+assets/*.gif
