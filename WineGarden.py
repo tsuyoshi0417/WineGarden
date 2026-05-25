@@ -134,12 +134,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif p == "/api/games":
             self.send_json(games)
         elif p == "/api/status":
+            import socket
+            try:
+                lan_ip = socket.gethostbyname(socket.gethostname())
+            except Exception:
+                lan_ip = None
             self.send_json({
                 "wine": wine_path,
                 "wine_name": (Path(wine_path).parent.parent.parent.parent.parent.name
                               if wine_path else None),
                 "running": {str(k): True for k, v in running_processes.items()
                             if v.poll() is None},
+                "lan_ip": lan_ip,
+                "port": PORT,
             })
         else:
             self.send_error(404)
@@ -326,7 +333,10 @@ header h1{font-size:18px;font-weight:700}
 <body>
 <header>
   <h1>🌿 WineGarden</h1>
-  <span id="ws">確認中...</span>
+  <div style="text-align:right">
+    <div id="ws">確認中...</div>
+    <div id="mobile" style="font-size:11px;opacity:.7"></div>
+  </div>
 </header>
 <div class="main">
   <div class="side">
@@ -350,6 +360,8 @@ async function poll(){
   const r=await fetch('/api/status'),s=await r.json();
   const w=document.getElementById('ws');
   w.textContent=s.wine?`Wine: ${s.wine_name} ✓`:'Wine: 未検出 ⚠';
+  const mi=document.getElementById('mobile');
+  if(mi&&s.lan_ip)mi.textContent=`📱 http://${s.lan_ip}:${s.port}`;
   if(sel!==null){
     const b=document.getElementById('lb');
     const sb=document.getElementById('sb');
@@ -443,13 +455,21 @@ def main():
     load_games()
     wine_path = find_wine()
 
-    server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     threading.Thread(
         target=lambda: (time.sleep(0.6), webbrowser.open(f"http://localhost:{PORT}")),
         daemon=True
     ).start()
 
+    # LAN IPアドレスを取得して表示
+    import socket
+    try:
+        lan_ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        lan_ip = "不明"
+
     print(f"🌿 WineGarden → http://localhost:{PORT}")
+    print(f"📱 スマホからアクセス → http://{lan_ip}:{PORT}  (同じWiFiが必要)")
     print("終了: Ctrl+C")
     try:
         server.serve_forever()
